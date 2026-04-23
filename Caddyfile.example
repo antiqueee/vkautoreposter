@@ -1,0 +1,7 @@
+# Production reverse proxy template.
+# Replace the host with your real domain and keep APP_BASE_URL in .env in sync.
+
+vkautoreposter.example.com {
+    encode gzip
+    reverse_proxy app:8765
+}

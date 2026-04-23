@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # Phase 2+ (source polling)
     vk_source_group_id: int | None = None
     vk_service_token: str | None = None
+    poll_interval_seconds: int = 60
+    repost_window_seconds: int = 18_000
+    repost_min_delay_seconds: int = 60
+    repost_lognormal_median_seconds: int = 3_600
+    repost_lognormal_sigma: float = 0.7
+    task_missed_threshold_seconds: int = 21_600
+    worker_batch_size: int = 50
 
     @field_validator("app_base_url")
     @classmethod

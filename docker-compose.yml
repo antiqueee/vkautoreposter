@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT:-8765}:8765"
+    volumes:
+      - repost_data:/app/data
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8765"
+
+volumes:
+  repost_data:

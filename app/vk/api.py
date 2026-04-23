@@ -37,18 +37,16 @@ class VkApiError(Exception):
         return f"VK {self.method} failed: code={self.error_code} msg={self.error_msg!r}"
 
 
-async def call(method: str, params: dict[str, Any], *, access_token: str) -> Any:
+async def call(method: str, params: dict[str, Any], *, access_token: str | None) -> Any:
     """POST to api.vk.com/method/{method}. Returns the value of ``response``.
 
     access_token is sent in the POST body, not the query, so it is not written
     to any proxy access log by default. Never log the raw token.
     """
     settings = get_settings()
-    payload: dict[str, Any] = {
-        **params,
-        "v": settings.vk_api_version,
-        "access_token": access_token,
-    }
+    payload: dict[str, Any] = {**params, "v": settings.vk_api_version}
+    if access_token:
+        payload["access_token"] = access_token
     _log.debug("vk call %s params_keys=%s", method, sorted(params.keys()))
 
     try:
@@ -83,6 +81,31 @@ async def users_get(
         params["user_ids"] = ",".join(str(uid) for uid in user_ids)
     resp = await call("users.get", params, access_token=access_token)
     return resp if isinstance(resp, list) else []
+
+
+async def wall_get(
+    *,
+    owner_id: int,
+    count: int = 10,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    """Return wall.get response for source polling.
+
+    Public walls often work without a token, but restricted publics can require
+    the app service token. We support both.
+    """
+    resp = await call(
+        "wall.get",
+        {"owner_id": owner_id, "count": count, "filter": "owner"},
+        access_token=access_token,
+    )
+    return resp if isinstance(resp, dict) else {"items": []}
+
+
+async def wall_repost(*, object_id: str, access_token: str) -> dict[str, Any]:
+    """Repost a VK wall object like ``wall-123_456`` on behalf of the token owner."""
+    resp = await call("wall.repost", {"object": object_id}, access_token=access_token)
+    return resp if isinstance(resp, dict) else {}
 
 
 # Error codes referenced across the app. Keep in sync with ARCHITECTURE.md §5.

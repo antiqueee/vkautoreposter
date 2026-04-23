@@ -15,12 +15,12 @@ rota tool for a political-communications team's volunteer network.
 - SQLite with `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`
 - `cryptography` (Fernet) for token-at-rest encryption
 - `httpx` for VK HTTP calls (no VK SDK — they lag API versions)
-- Jinja2 + HTMX (HTMX arrives in phase 3 with admin UI)
-- APScheduler (phase 2) for the in-process minute tick
+- Jinja2 templates
+- Host cron or manual CLI for the minute tick
 
 Rationale for deliberately boring choices: workload is tiny (a few posts/day
 × 70 participants), so the ceiling of SQLite + single-process FastAPI +
-in-process scheduler is several orders of magnitude above what we need.
+host cron is several orders of magnitude above what we need.
 Redis/Celery/Postgres would be complexity for a hypothetical future.
 
 ## Components
@@ -42,9 +42,8 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
    │  participant    cabinet     coordinator UI   │
    │  OAuth          (phase 3)                    │
    │                                              │
-   │  APScheduler in-process (phase 2)            │
-   │    poll_source  — every 60s  (wall.get)      │
-   │    run_due      — every 60s  (claim + post)  │
+   │  Host cron / manual CLI                      │
+   │    tick — poll_source + run_due_tasks        │
    │                                              │
    │  CLI: python scripts/smoke_test.py           │
    │       python -m app.worker run_due_tasks     │
@@ -61,7 +60,7 @@ source public with a service token once per minute. This is one request,
 not seventy, and removes the need for a public URL that VK can reach —
 which matters for local dev and simplifies prod deployment.
 
-## Schema (phase 1 subset is live; rest arrives in later phases)
+## Schema (phase 2 live)
 
 ```sql
 CREATE TABLE users (
@@ -78,14 +77,13 @@ CREATE TABLE users (
 );
 CREATE INDEX idx_users_status ON users(status);
 
--- Phase 2:
 CREATE TABLE source_config (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     vk_group_id INTEGER NOT NULL,        -- positive
-    service_token_encrypted BLOB NOT NULL,
-    last_seen_vk_post_id INTEGER NOT NULL DEFAULT 0,
-    last_polled_at DATETIME,
     enabled INTEGER NOT NULL DEFAULT 1,
+    last_seen_vk_post_id INTEGER,
+    last_polled_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -120,7 +118,6 @@ CREATE TABLE repost_tasks (
 CREATE INDEX idx_repost_tasks_due  ON repost_tasks(status, scheduled_at);
 CREATE INDEX idx_repost_tasks_user ON repost_tasks(user_id);
 
--- Live now (phase 1):
 CREATE TABLE audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER REFERENCES users(id),
@@ -186,18 +183,18 @@ it from the browser history too.
 
 Every 60 seconds:
 
-1. `wall.get?owner_id=-vk_group_id&count=10` with the **service token**
-   (works on public groups without a user token).
-2. Skip pinned post (`is_pinned=1`).
-3. Skip posts where `marked_as_ads=1`.
-4. Keep posts whose `id > source_config.last_seen_vk_post_id`.
-5. For each new post, inside one transaction:
+1. `wall.get?owner_id=-vk_group_id&count=10`. Public groups can work without
+   a token; if VK requires auth, use `VK_SERVICE_TOKEN` from env.
+2. Keep posts whose `id > source_config.last_seen_vk_post_id`.
+3. First poll only initializes the cursor and intentionally does not backfill
+   historical posts.
+4. For each new post, inside one transaction:
    - INSERT into `posts` (UNIQUE protects against retry dups).
    - For each user with `status='active'`:
      - `delay = clip(exp(gauss(μ=ln(3600), σ=0.7)), 60, 18000)`
      - INSERT into `repost_tasks` with `scheduled_at = max(published_at, now()) + delay`.
    - UPDATE `source_config.last_seen_vk_post_id`.
-6. Commit.
+5. Commit.
 
 ## Task execution (phase 2)
 
@@ -218,8 +215,8 @@ COMMIT;
 ```
 
 SQLite WAL serialises write transactions, so two concurrent workers cannot
-claim the same row. Policy: run exactly one scheduler (either in-process
-APScheduler or host cron, not both).
+claim the same row. Policy: run exactly one scheduler. The MVP recommendation
+is host cron calling `python -m app.worker tick` once per minute.
 
 For each claimed task: re-read user → if not `active`, finalise as
 `skipped_paused` / `cancelled`; if `now - scheduled_at > MISSED_THRESHOLD`,
@@ -254,6 +251,6 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
 
 - **Phase 1 (done):** OAuth onboarding, encrypted tokens at rest,
   minimal cabinet, smoke test.
-- **Phase 2:** source polling, log-normal scheduling, worker, error matrix.
+- **Phase 2 (done):** source polling, log-normal scheduling, worker, error matrix.
 - **Phase 3:** admin UI, pause/resume/revoke, per-user repost history.
 - **Phase 4:** Caddy + Let's Encrypt, backup automation, production deploy.

@@ -3,9 +3,9 @@
 Consent-based automation for reposting a single VK public's posts across a
 network of participants. Internal tool — not a public web service.
 
-**Status:** phase 1 — OAuth onboarding + participant cabinet. Phase 2
-(source polling + repost worker) and phase 3 (admin UI, pause, revoke) are
-not yet implemented.
+**Status:** phase 2 — OAuth onboarding, participant cabinet, source polling,
+task enqueueing, and CLI worker. Phase 3 (admin UI, pause, revoke) is not yet
+implemented.
 
 ---
 
@@ -40,8 +40,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 cp .env.example .env
 ```
 
-Fill in `FERNET_KEY`, `SESSION_SECRET_KEY`, `VK_APP_ID`. Leave phase 2/3
-fields blank for now.
+Fill in `FERNET_KEY`, `SESSION_SECRET_KEY`, `VK_APP_ID`. `VK_SOURCE_GROUP_ID`
+is only needed when you start testing source polling.
 
 ### 4. Install dependencies
 
@@ -66,7 +66,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 Open <http://localhost:8765>, click **Подключить аккаунт ВК**, approve on VK,
-land on `/me`. That is the golden path for phase 1.
+land on `/me`.
 
 ### 7. Smoke test
 
@@ -77,6 +77,75 @@ python scripts/smoke_test.py
 Pulls the first active user from the DB, decrypts the token, calls
 `users.get` on VK, prints the profile. If it succeeds, the end-to-end
 OAuth + crypto path works.
+
+### 8. Source polling and worker
+
+Set the source public group ID in `.env`:
+
+```env
+VK_SOURCE_GROUP_ID=123456789
+VK_SERVICE_TOKEN=
+```
+
+`VK_SOURCE_GROUP_ID` is positive; the app polls `owner_id=-VK_SOURCE_GROUP_ID`.
+For public groups `wall.get` can work without `VK_SERVICE_TOKEN`; if VK returns
+an access error, create an app service token in VK app settings and put it here.
+
+Commands:
+
+```bash
+python -m app.worker poll_source
+python -m app.worker run_due_tasks
+python -m app.worker tick
+```
+
+`tick` does both: poll source, then execute due repost tasks.
+
+---
+
+## Docker
+
+Local container run:
+
+```bash
+docker compose up --build
+```
+
+Run one worker tick:
+
+```bash
+docker compose run --rm app python -m app.worker tick
+```
+
+Recommended MVP cron setup: keep the web container as a single process and let
+host cron call the worker. This avoids a process supervisor inside the container
+and keeps failures visible in regular cron/docker logs.
+
+Example crontab on the host:
+
+```cron
+* * * * * cd /opt/repost-sync && docker compose run --rm app python -m app.worker tick >> /var/log/repost-sync-worker.log 2>&1
+```
+
+Do not run two schedulers at once.
+
+## Production HTTPS
+
+For production OAuth, VK requires a real HTTPS redirect URL. Put Caddy in front
+of the app and set:
+
+```env
+APP_BASE_URL=https://vkautoreposter.example.com
+```
+
+VK app settings:
+
+```text
+Базовый домен: vkautoreposter.example.com
+Доверенный Redirect URL: https://vkautoreposter.example.com/auth/vk/complete
+```
+
+`Caddyfile.example` contains a minimal reverse proxy template.
 
 ---
 
@@ -123,12 +192,17 @@ app/
   audit.py             audit_log writer
   vk/
     oauth.py           OAuth URL builder
-    api.py             httpx client, users_get, error classes
+    api.py             httpx client, users_get, wall_get, wall_repost, errors
   auth/
     sessions.py        session cookie helpers
     routes.py          /auth/vk/start, /auth/vk/complete, /auth/vk/logout
   routes/
     public.py          /, /me
+  worker/
+    poller.py          wall.get polling + task enqueueing
+    executor.py        due-task claim + wall.repost execution
+    scheduling.py      log-normal scheduled_at sampler
+    __main__.py        python -m app.worker ...
   templates/           Jinja2 templates
   main.py              FastAPI wiring
 migrations/            Alembic
@@ -140,8 +214,8 @@ scripts/
 
 - **Phase 1 (done):** arch doc, OAuth onboarding, encrypted token storage,
   minimal cabinet, smoke test.
-- **Phase 2 (next):** poll source public via `wall.get`, detect new posts,
-  enqueue per-user tasks with log-normal scheduling, APScheduler worker,
+- **Phase 2 (done):** poll source public via `wall.get`, detect new posts,
+  enqueue per-user tasks with log-normal scheduling, CLI worker,
   VK error-matrix handling.
 - **Phase 3:** admin UI (participant list, manual trigger by URL, post
   history, failed-in-24h panel), pause/resume/revoke in cabinet, per-user
