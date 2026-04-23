@@ -12,8 +12,53 @@
 <div class="row">Согласие получено: {{ user.consented_at }}</div>
 <div class="row">Последняя проверка токена: {{ user.token_verified_at or '—' }}</div>
 <hr>
-<form method="post" action="/auth/vk/logout">
-  <button type="submit">Выйти из личного кабинета</button>
-</form>
-<p class="muted">Пауза, отзыв доступа и история репостов появятся в следующей фазе.</p>
+<div class="actions">
+  {% if user.status == 'active' %}
+    <form method="post" action="/me/pause"><button type="submit">Поставить на паузу</button></form>
+  {% elif user.status == 'paused' %}
+    <form method="post" action="/me/resume"><button type="submit">Вернуться в работу</button></form>
+  {% endif %}
+  <form method="post" action="/auth/vk/logout">
+    <button type="submit">Выйти</button>
+  </form>
+  <form method="post" action="/me/revoke" onsubmit="return confirm('Отозвать доступ в сервисе? Pending-задачи будут отменены.');">
+    <button type="submit">Отозвать доступ</button>
+  </form>
+</div>
+
+<h2>История репостов</h2>
+{% if history %}
+<table>
+  <thead>
+    <tr><th>Пост</th><th>Статус</th><th>Запланировано</th><th>Завершено</th><th>Ошибка</th></tr>
+  </thead>
+  <tbody>
+    {% for item in history %}
+      <tr>
+        <td><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.url }}</a><br><span class="muted">{{ item.text_preview or '' }}</span></td>
+        <td>{{ item.status }}</td>
+        <td>{{ item.scheduled_at }}</td>
+        <td>{{ item.finished_at or '—' }}</td>
+        <td>{{ item.error_code or '—' }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Репостов пока нет.</p>
+{% endif %}
+
+<h2>Журнал</h2>
+{% if audit_rows %}
+<table>
+  <thead><tr><th>Время</th><th>Действие</th><th>Детали</th></tr></thead>
+  <tbody>
+    {% for row in audit_rows %}
+      <tr><td>{{ row.created_at }}</td><td>{{ row.action }}</td><td><code>{{ row.details_json or '' }}</code></td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Журнал пуст.</p>
+{% endif %}
 {% endblock %}

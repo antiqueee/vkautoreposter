@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Админка · Repost Sync{% endblock %}
+{% block content %}
+<h1>Админка</h1>
+
+<p class="muted">
+  Источник:
+  {% if source %}
+    vk.com/public{{ source.vk_group_id }},
+    last_seen={{ source.last_seen_vk_post_id or '—' }},
+    last_polled={{ source.last_polled_at or '—' }}
+  {% elif settings.vk_source_group_id %}
+    задан в ENV, ещё не инициализирован
+  {% else %}
+    VK_SOURCE_GROUP_ID не настроен
+  {% endif %}
+</p>
+
+<h2>Ручной триггер</h2>
+<form method="post" action="/admin/manual-trigger">
+  <input type="url" name="post_url" placeholder="https://vk.com/wall-123456_789" required>
+  <button type="submit">Создать задачи</button>
+</form>
+
+<h2>Участники</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Имя</th><th>VK</th><th>Статус</th><th>Токен проверен</th><th>Задачи</th><th>Готово</th><th>Ошибки</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for user in users %}
+      <tr>
+        <td>{{ user.display_name }}</td>
+        <td><a href="https://vk.com/id{{ user.vk_user_id }}" target="_blank" rel="noopener">id{{ user.vk_user_id }}</a></td>
+        <td>{{ user.status }}</td>
+        <td>{{ user.token_verified_at or '—' }}</td>
+        <td>{{ user.task_count or 0 }}</td>
+        <td>{{ user.done_count or 0 }}</td>
+        <td>{{ user.failed_count or 0 }}</td>
+        <td>
+          {% if user.status == 'active' %}
+            <form class="inline" method="post" action="/admin/users/{{ user.id }}/disable"><button type="submit">Пауза</button></form>
+          {% elif user.status == 'paused' %}
+            <form class="inline" method="post" action="/admin/users/{{ user.id }}/enable"><button type="submit">Включить</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Последние посты</h2>
+{% if posts %}
+<table>
+  <thead><tr><th>Пост</th><th>Опубликован</th><th>Обнаружен</th><th>Задачи</th><th>Готово</th><th>Ошибки</th></tr></thead>
+  <tbody>
+    {% for post in posts %}
+      <tr>
+        <td><a href="{{ post.url }}" target="_blank" rel="noopener">{{ post.url }}</a></td>
+        <td>{{ post.published_at }}</td>
+        <td>{{ post.detected_at }}</td>
+        <td>{{ post.task_count or 0 }}</td>
+        <td>{{ post.done_count or 0 }}</td>
+        <td>{{ post.failed_count or 0 }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Постов пока нет.</p>
+{% endif %}
+
+<h2>Ошибки за 24 часа</h2>
+{% if failed %}
+<table>
+  <thead><tr><th>Участник</th><th>Пост</th><th>Код</th><th>Детали</th><th>Время</th></tr></thead>
+  <tbody>
+    {% for item in failed %}
+      <tr>
+        <td>{{ item.display_name }} / id{{ item.vk_user_id }}</td>
+        <td><a href="{{ item.url }}" target="_blank" rel="noopener">{{ item.url }}</a></td>
+        <td class="danger">{{ item.error_code }}</td>
+        <td>{{ item.error_details or '' }}</td>
+        <td>{{ item.finished_at }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Ошибок за последние 24 часа нет.</p>
+{% endif %}
+
+<h2>Системный журнал</h2>
+{% if audit_rows %}
+<table>
+  <thead><tr><th>Время</th><th>Актор</th><th>Действие</th><th>Детали</th></tr></thead>
+  <tbody>
+    {% for row in audit_rows %}
+      <tr>
+        <td>{{ row.created_at }}</td>
+        <td>{{ row.actor }}</td>
+        <td>{{ row.action }}</td>
+        <td><code>{{ row.details_json or '' }}</code></td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">Системный журнал пуст.</p>
+{% endif %}
+{% endblock %}

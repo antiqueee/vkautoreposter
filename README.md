@@ -3,9 +3,9 @@
 Consent-based automation for reposting a single VK public's posts across a
 network of participants. Internal tool — not a public web service.
 
-**Status:** phase 2 — OAuth onboarding, participant cabinet, source polling,
-task enqueueing, and CLI worker. Phase 3 (admin UI, pause, revoke) is not yet
-implemented.
+**Status:** phase 3 — OAuth onboarding, participant cabinet, source polling,
+task enqueueing, CLI worker, admin dashboard, pause/resume/revoke, and manual
+trigger by post URL.
 
 ---
 
@@ -42,6 +42,14 @@ cp .env.example .env
 
 Fill in `FERNET_KEY`, `SESSION_SECRET_KEY`, `VK_APP_ID`. `VK_SOURCE_GROUP_ID`
 is only needed when you start testing source polling.
+
+For the admin UI, also set:
+
+```env
+ADMIN_PASSWORD=long-random-password
+```
+
+Admin login is fixed as `admin`; password comes from env.
 
 ### 4. Install dependencies
 
@@ -100,6 +108,22 @@ python -m app.worker tick
 ```
 
 `tick` does both: poll source, then execute due repost tasks.
+
+### 9. Admin UI
+
+Open <http://localhost:8765/admin>. Browser Basic Auth credentials:
+
+```text
+login: admin
+password: ADMIN_PASSWORD from .env
+```
+
+The MVP admin UI shows participants, recent posts, failed tasks from the last
+24 hours, source cursor status, and a manual trigger form for URLs like:
+
+```text
+https://vk.com/wall-123456789_42
+```
 
 ---
 
@@ -179,6 +203,14 @@ Minimal strategy (cron example):
 Fernet key: store once in a password manager + a second offline copy.
 Never commit it.
 
+Helper script:
+
+```bash
+BACKUP_DIR=/var/backups/repost-sync ./scripts/backup.sh
+```
+
+It backs up only the SQLite DB. `FERNET_KEY` must be copied separately.
+
 ---
 
 ## Project layout
@@ -194,10 +226,12 @@ app/
     oauth.py           OAuth URL builder
     api.py             httpx client, users_get, wall_get, wall_repost, errors
   auth/
+    admin.py           HTTP Basic admin auth
     sessions.py        session cookie helpers
     routes.py          /auth/vk/start, /auth/vk/complete, /auth/vk/logout
   routes/
     public.py          /, /me
+    admin.py           /admin dashboard, manual trigger, participant controls
   worker/
     poller.py          wall.get polling + task enqueueing
     executor.py        due-task claim + wall.repost execution
@@ -208,6 +242,7 @@ app/
 migrations/            Alembic
 scripts/
   smoke_test.py        phase 1 E2E check
+  backup.sh            SQLite backup helper
 ```
 
 ## Roadmap
@@ -217,10 +252,10 @@ scripts/
 - **Phase 2 (done):** poll source public via `wall.get`, detect new posts,
   enqueue per-user tasks with log-normal scheduling, CLI worker,
   VK error-matrix handling.
-- **Phase 3:** admin UI (participant list, manual trigger by URL, post
+- **Phase 3 (done):** admin UI (participant list, manual trigger by URL, post
   history, failed-in-24h panel), pause/resume/revoke in cabinet, per-user
   audit view.
-- **Phase 4:** Docker deploy, Caddy + Let's Encrypt, backup script,
-  production readme.
+- **Phase 4 (partial):** Docker/Caddy templates and backup helper are present.
+  Real production deploy waits for domain, SSH access, and VK app settings.
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full design.

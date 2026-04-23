@@ -242,6 +242,16 @@ def _handle_vk_error(*, task_id: int, user_id: int, exc: VkApiError) -> None:
                 .where(users.c.id == user_id)
                 .values(status=user_status, updated_at=now)
             )
+            conn.execute(
+                update(repost_tasks)
+                .where(repost_tasks.c.user_id == user_id)
+                .where(repost_tasks.c.status == TaskStatus.PENDING)
+                .values(
+                    status=TaskStatus.CANCELLED,
+                    finished_at=now,
+                    error_code="user_token_unusable",
+                )
+            )
         audit_record(
             conn,
             actor=Actor.SYSTEM,

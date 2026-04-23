@@ -40,7 +40,7 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
    │                                              │
    │  /auth/vk/*     /me         /admin/*         │
    │  participant    cabinet     coordinator UI   │
-   │  OAuth          (phase 3)                    │
+   │  OAuth                                       │
    │                                              │
    │  Host cron / manual CLI                      │
    │    tick — poll_source + run_due_tasks        │
@@ -246,11 +246,14 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
 - No LLM-generated comments. Raw `wall.repost`, no message.
 - No auto token-refresh prompt. Invalidated participants re-authorise via
   the onboarding link.
+- No server-side VK token revocation for implicit tokens. "Revoke" means local
+  token wipe/overwrite, `status='revoked'`, and pending task cancellation.
 
 ## Delivery phases
 
 - **Phase 1 (done):** OAuth onboarding, encrypted tokens at rest,
   minimal cabinet, smoke test.
 - **Phase 2 (done):** source polling, log-normal scheduling, worker, error matrix.
-- **Phase 3:** admin UI, pause/resume/revoke, per-user repost history.
-- **Phase 4:** Caddy + Let's Encrypt, backup automation, production deploy.
+- **Phase 3 (done):** admin UI, pause/resume/revoke, per-user repost history.
+- **Phase 4 (partial):** Caddy template and backup helper are present;
+  production deploy waits for domain/SSH/VK app settings.

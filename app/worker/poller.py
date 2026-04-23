@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +18,7 @@ from app.vk.api import VkApiError, VkNetworkError, wall_get
 from app.worker.scheduling import sample_repost_time
 
 _log = logging.getLogger("app.worker.poller")
+_WALL_URL_RE = re.compile(r"(?:https?://)?(?:m\.)?vk\.com/wall(-?\d+)_(\d+)")
 
 
 def _post_url(group_id: int, post_id: int) -> str:
@@ -27,6 +29,14 @@ def _preview(text: str | None) -> str | None:
     if not text:
         return None
     return text[:500]
+
+
+def parse_wall_url(url: str) -> tuple[int, int]:
+    """Parse VK wall URL and return (owner_id, post_id)."""
+    match = _WALL_URL_RE.search(url.strip())
+    if not match:
+        raise ValueError("expected VK wall URL like https://vk.com/wall-123_456")
+    return int(match.group(1)), int(match.group(2))
 
 
 def ensure_source_config() -> None:
@@ -191,3 +201,27 @@ def _enqueue_post(*, conn, group_id: int, item: dict[str, Any]) -> int:
         },
     )
     return 1
+
+
+def enqueue_manual_post(url: str) -> int:
+    """Create repost tasks for a manually supplied source post URL.
+
+    We intentionally do not fetch the post body here. The admin is explicitly
+    triggering a known URL; phase 4 can add VK-side validation if needed.
+    """
+    settings = get_settings()
+    if settings.vk_source_group_id is None:
+        raise RuntimeError("VK_SOURCE_GROUP_ID is required for manual trigger")
+    owner_id, post_id = parse_wall_url(url)
+    expected_owner_id = -settings.vk_source_group_id
+    if owner_id != expected_owner_id:
+        raise ValueError(f"post owner must be wall{expected_owner_id}, got wall{owner_id}")
+    item = {
+        "id": post_id,
+        "owner_id": owner_id,
+        "date": int(datetime.utcnow().timestamp()),
+        "text": None,
+        "marked_as_ads": 0,
+    }
+    with connection() as conn:
+        return _enqueue_post(conn=conn, group_id=settings.vk_source_group_id, item=item)

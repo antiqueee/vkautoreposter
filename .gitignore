@@ -15,6 +15,7 @@ env/
 .env
 .env.local
 data/
+backups/
 *.db
 *.db-journal
 *.db-wal
