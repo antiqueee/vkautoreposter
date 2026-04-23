@@ -1,0 +1,22 @@
+services:
+  repost-sync:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - repost_data:/app/data
+    restart: unless-stopped
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8765"
+    networks:
+      - default
+      - shared_proxy
+
+volumes:
+  repost_data:
+
+networks:
+  shared_proxy:
+    external: true
+    name: shtab-tasks_default

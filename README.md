@@ -171,6 +171,24 @@ VK app settings:
 
 `Caddyfile.example` contains a minimal reverse proxy template.
 
+### Server deploy behind an existing Caddy
+
+If the server already has a Caddy reverse proxy for another project, use
+`docker-compose.server.yml`. It joins the existing Docker network
+`shtab-tasks_default` and does **not** bind host ports:
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+Then add a host block to the existing Caddy:
+
+```caddy
+app.subscribe-to-reposter.ru {
+    reverse_proxy repost-sync:8765
+}
+```
+
 ---
 
 ## Security notes
