@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Личный кабинет · Repost Sync{% endblock %}
+{% block content %}
+<h1>Привет, {{ user.display_name }}</h1>
+<div class="row">
+  VK:
+  <a href="https://vk.com/id{{ user.vk_user_id }}" target="_blank" rel="noopener">
+    id{{ user.vk_user_id }}
+  </a>
+</div>
+<div class="row">Статус: <b>{{ user.status }}</b></div>
+<div class="row">Согласие получено: {{ user.consented_at }}</div>
+<div class="row">Последняя проверка токена: {{ user.token_verified_at or '—' }}</div>
+<hr>
+<form method="post" action="/auth/vk/logout">
+  <button type="submit">Выйти из личного кабинета</button>
+</form>
+<p class="muted">Пауза, отзыв доступа и история репостов появятся в следующей фазе.</p>
+{% endblock %}

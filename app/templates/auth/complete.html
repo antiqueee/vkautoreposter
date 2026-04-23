@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Подключение ВК...</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+           max-width: 480px; margin: 80px auto; padding: 0 16px; text-align: center; }
+    #status { color: #888; }
+    #error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <p id="status">Подключаем аккаунт...</p>
+  <p id="error" hidden></p>
+  <form id="f" method="post" action="{{ post_url }}" hidden>
+    <input type="hidden" name="access_token" value="">
+    <input type="hidden" name="user_id" value="">
+    <input type="hidden" name="state" value="">
+    <input type="hidden" name="expires_in" value="0">
+  </form>
+  <noscript>
+    <p>Для завершения входа нужен JavaScript. Включите его и обновите страницу.</p>
+  </noscript>
+  <script>
+  (function () {
+    const showError = (msg) => {
+      document.getElementById('status').hidden = true;
+      const err = document.getElementById('error');
+      err.textContent = msg + ' ';
+      const back = document.createElement('a');
+      back.href = '/';
+      back.textContent = 'На главную';
+      err.appendChild(back);
+      err.hidden = false;
+    };
+
+    const hash = window.location.hash.replace(/^#/, '');
+    if (!hash) {
+      showError('Токен не получен от ВК.');
+      return;
+    }
+    const p = new URLSearchParams(hash);
+    const token = p.get('access_token');
+    const userId = p.get('user_id');
+    const state = p.get('state');
+    const expiresIn = p.get('expires_in') || '0';
+    if (!token || !userId || !state) {
+      const err = p.get('error_description') || p.get('error') || 'Неполные данные.';
+      showError('Ошибка ВК: ' + err);
+      return;
+    }
+    const f = document.getElementById('f');
+    f.access_token.value = token;
+    f.user_id.value = userId;
+    f.state.value = state;
+    f.expires_in.value = expiresIn;
+    // Wipe fragment so the token is not in browser history.
+    history.replaceState(null, '', window.location.pathname);
+    f.submit();
+  })();
+  </script>
+</body>
+</html>
