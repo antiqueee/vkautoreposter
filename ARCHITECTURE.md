@@ -3,7 +3,7 @@
 ## Scope
 
 Consent-based automation of reposts from a single VK public to the walls of
-~70 participants who already do this by hand. OAuth-based consent, per-user
+~70 participants who already do this by hand. VK-auth-based consent, per-user
 pause/revoke, full audit trail. Not a bot network, not astroturfing — a
 rota tool for a political-communications team's volunteer network.
 
@@ -28,7 +28,7 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
 ```
                          VK
    ┌──────────────────────────────────────────────┐
-   │  oauth.vk.com            api.vk.com          │
+   │  id.vk.com / VK ID SDK   api.vk.com          │
    │        ▲                     ▲               │
    │        │ user consent        │ wall.get      │
    │        │                     │ users.get     │
@@ -40,7 +40,7 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
    │                                              │
    │  /auth/vk/*     /me         /admin/*         │
    │  participant    cabinet     coordinator UI   │
-   │  OAuth                                       │
+   │  VK auth                                     │
    │                                              │
    │  Host cron / manual CLI                      │
    │    tick — poll_source + run_due_tasks        │
@@ -134,7 +134,7 @@ No `admins` table. One coordinator → HTTP Basic + `ADMIN_PASSWORD` from env.
 Good for the single-coordinator model; swap for a real table in ~30 min if
 a second coordinator appears.
 
-## OAuth flow (Implicit + offline)
+## Auth flow (VK ID SDK + backend token storage)
 
 ```
 Participant  Browser         Server            VK
@@ -143,26 +143,17 @@ Participant  Browser         Server            VK
     ├──────────>│ GET /auth/vk/start            │
     │           ├──────────────>│ generate state│
     │           │               │ session[state]│
-    │           │ 302 oauth.vk.com/authorize?   │
-    │           │   client_id&scope=wall,offline│
-    │           │   response_type=token&state=X │
-    │           │<──────────────┤               │
-    │           │──────────────────────────────>│
-    │           │<──────────────────────────────┤ consent screen
-    │ approve   │                               │
-    ├──────────>│                               │
     │           │ 302 /auth/vk/complete         │
-    │           │   #access_token=...&user_id=  │
-    │           │   ...&state=X                 │
-    │           │<──────────────────────────────┤
+    │           │<──────────────┤               │
     │           │ GET /auth/vk/complete         │
     │           ├──────────────>│               │
-    │           │ 200 HTML+JS   │               │
+    │           │ 200 HTML+JS + VK ID SDK       │
     │           │<──────────────┤               │
-    │           │ JS reads fragment             │
+    │           │ user authorizes via VK ID     │
+    │           │ SDK gets code                 │
+    │           │ SDK exchangeCode(code)        │
     │           │ JS POST /auth/vk/complete     │
-    │           │   form: access_token,user_id, │
-    │           │          state                │
+    │           │   form: access_token,state    │
     │           ├──────────────>│               │
     │           │               │ verify state  │
     │           │               │ users.get     │
@@ -175,9 +166,10 @@ Participant  Browser         Server            VK
     │           │<──────────────┤               │
 ```
 
-Fragment carries the token, so it never appears in server logs or reverse-
-proxy access logs. The JS reader then calls `history.replaceState` to wipe
-it from the browser history too.
+Trade-off: the access token still passes through the browser, but the VK
+password never does, and the backend remains the only place where the token is
+persisted. This is the conservative path until VK ID's full server-side
+exchange behaviour for `wall`/API scopes is validated in production.
 
 ## Source polling (phase 2)
 
@@ -246,12 +238,12 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
 - No LLM-generated comments. Raw `wall.repost`, no message.
 - No auto token-refresh prompt. Invalidated participants re-authorise via
   the onboarding link.
-- No server-side VK token revocation for implicit tokens. "Revoke" means local
+- No server-side VK token revocation. "Revoke" means local
   token wipe/overwrite, `status='revoked'`, and pending task cancellation.
 
 ## Delivery phases
 
-- **Phase 1 (done):** OAuth onboarding, encrypted tokens at rest,
+- **Phase 1 (done):** auth onboarding, encrypted tokens at rest,
   minimal cabinet, smoke test.
 - **Phase 2 (done):** source polling, log-normal scheduling, worker, error matrix.
 - **Phase 3 (done):** admin UI, pause/resume/revoke, per-user repost history.

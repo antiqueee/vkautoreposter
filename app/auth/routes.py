@@ -1,11 +1,10 @@
-"""Participant OAuth routes.
+"""Participant auth routes.
 
-Flow:
-  GET  /auth/vk/start       → generate state, store in session, 302 to VK
-  GET  /auth/vk/complete    → HTML page with JS that reads the token from the
-                              URL fragment and POSTs it to the next endpoint
-  POST /auth/vk/complete    → verify state, verify token via users.get,
-                              upsert users row with encrypted token, set session
+Current flow:
+  GET  /auth/vk/start       → generate CSRF state and redirect to the auth page
+  GET  /auth/vk/complete    → serve VK ID SDK page
+  POST /auth/vk/complete    → accept access_token from the SDK, verify it via
+                              users.get, upsert users row, set session
 """
 
 from __future__ import annotations
@@ -27,11 +26,12 @@ from app.auth.sessions import (
     set_current_user,
     set_oauth_state,
 )
+from app.config import get_settings
 from app.crypto import encrypt_token
 from app.db import connection
 from app.models import Actor, UserStatus, users
 from app.vk.api import VkApiError, VkNetworkError, users_get
-from app.vk.oauth import build_auth_url, generate_state
+from app.vk.oauth import generate_state
 
 _log = logging.getLogger("app.auth.routes")
 
@@ -42,26 +42,33 @@ _TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent.paren
 
 @router.get("/start")
 async def start(request: Request) -> RedirectResponse:
-    """Begin OAuth: generate CSRF state, persist in session, 302 to VK authorize."""
+    """Begin auth: generate CSRF state and send the participant to the VK ID page."""
     if get_current_user_id(request) is not None:
         return RedirectResponse(url="/me", status_code=302)
     state = generate_state()
     set_oauth_state(request, state)
-    return RedirectResponse(url=build_auth_url(state), status_code=302)
+    return RedirectResponse(url="/auth/vk/complete", status_code=302)
 
 
 @router.get("/complete", response_class=HTMLResponse)
 async def complete_get(request: Request) -> HTMLResponse:
-    """Serve the fragment-reader page.
+    """Serve the VK ID SDK page."""
+    expected_state = request.session.get("vk_oauth_state")
+    if not expected_state:
+        state = generate_state()
+        set_oauth_state(request, state)
+        expected_state = state
 
-    VK redirects here with the token in the URL fragment (``#access_token=...``).
-    Fragments never reach the server, so we render a page whose JS reads the
-    fragment, then POSTs it to this same path.
-    """
     return _TEMPLATES.TemplateResponse(
         request,
         "auth/complete.html",
-        {"post_url": "/auth/vk/complete"},
+        {
+            "post_url": "/auth/vk/complete",
+            "vk_app_id": get_settings().vk_app_id,
+            "vk_scope": get_settings().vk_oauth_scope,
+            "redirect_url": get_settings().oauth_redirect_uri,
+            "state": expected_state,
+        },
     )
 
 
@@ -69,17 +76,15 @@ async def complete_get(request: Request) -> HTMLResponse:
 async def complete_post(
     request: Request,
     access_token: Annotated[str, Form()],
-    user_id: Annotated[int, Form()],
     state: Annotated[str, Form()],
-    expires_in: Annotated[int, Form()] = 0,
 ) -> RedirectResponse:
     expected_state = pop_oauth_state(request)
     if not expected_state or expected_state != state:
         _log.warning("oauth state mismatch")
-        raise HTTPException(status_code=400, detail="OAuth state mismatch. Try again.")
+        raise HTTPException(status_code=400, detail="Auth state mismatch. Try again.")
 
     try:
-        profiles = await users_get(access_token, user_ids=[user_id])
+        profiles = await users_get(access_token)
     except VkApiError as exc:
         _log.warning("users.get rejected token: code=%s msg=%s", exc.error_code, exc.error_msg)
         raise HTTPException(status_code=400, detail="VK rejected the token") from exc
@@ -90,6 +95,7 @@ async def complete_post(
     if not profiles:
         raise HTTPException(status_code=400, detail="VK returned empty profile")
     profile = profiles[0]
+    user_id = int(profile["id"])
     display_name = f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip() \
         or profile.get("screen_name") or f"id{user_id}"
 

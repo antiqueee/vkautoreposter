@@ -3,7 +3,7 @@
 Consent-based automation for reposting a single VK public's posts across a
 network of participants. Internal tool — not a public web service.
 
-**Status:** phase 3 — OAuth onboarding, participant cabinet, source polling,
+**Status:** phase 3 — VK auth onboarding, participant cabinet, source polling,
 task enqueueing, CLI worker, admin dashboard, pause/resume/revoke, and manual
 trigger by post URL.
 
@@ -11,18 +11,19 @@ trigger by post URL.
 
 ## Quickstart (local dev)
 
-### 1. Register a VK Standalone application
+### 1. Register a VK web application in VK ID
 
-Create a new **Standalone** app at <https://vk.com/editapp?act=create>.
+Create a new **Web** app in VK ID and fill in:
 
-- **Type:** Standalone-приложение
-- After creation, open **Настройки** and fill in:
-  - **Базовый домен:** `localhost`
-  - **Доверенный redirect URI:** `http://localhost:8765/auth/vk/complete`
-- Save. Copy the **ID приложения** — this is your `VK_APP_ID`.
+- **Базовый домен:** your real domain, e.g. `app.subscribe-to-reposter.ru`
+- **Доверенный Redirect URL:** `https://app.subscribe-to-reposter.ru/auth/vk/complete`
 
-The OAuth flow requests `scope=wall,offline`. `offline` makes the issued
-user token non-expiring (revocable only by VK or by the user).
+Copy the **ID приложения** into `VK_APP_ID`.
+
+The current app uses VK ID SDK in the browser to exchange `code` for
+`access_token`, then sends the access token to the backend for verification and
+encrypted storage. `VK_PROTECTED_KEY` exists in the VK cabinet too, but the MVP
+does not need it yet.
 
 ### 2. Generate local secrets
 
@@ -73,8 +74,7 @@ This creates `./data/repost.db` (path configurable via `DB_PATH`).
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-Open <http://localhost:8765>, click **Подключить аккаунт ВК**, approve on VK,
-land on `/me`.
+Open the app, click **Подключить аккаунт ВК**, complete VK auth, land on `/me`.
 
 ### 7. Smoke test
 
@@ -84,7 +84,7 @@ python scripts/smoke_test.py
 
 Pulls the first active user from the DB, decrypts the token, calls
 `users.get` on VK, prints the profile. If it succeeds, the end-to-end
-OAuth + crypto path works.
+VK auth + crypto path works.
 
 ### 8. Source polling and worker
 
@@ -155,7 +155,7 @@ Do not run two schedulers at once.
 
 ## Production HTTPS
 
-For production OAuth, VK requires a real HTTPS redirect URL. Put Caddy in front
+For production VK auth, VK requires a real HTTPS redirect URL. Put Caddy in front
 of the app and set:
 
 ```env
@@ -241,7 +241,7 @@ app/
   models.py            Table definitions (Core)
   audit.py             audit_log writer
   vk/
-    oauth.py           OAuth URL builder
+    oauth.py           state helper
     api.py             httpx client, users_get, wall_get, wall_repost, errors
   auth/
     admin.py           HTTP Basic admin auth
@@ -265,7 +265,7 @@ scripts/
 
 ## Roadmap
 
-- **Phase 1 (done):** arch doc, OAuth onboarding, encrypted token storage,
+- **Phase 1 (done):** arch doc, auth onboarding, encrypted token storage,
   minimal cabinet, smoke test.
 - **Phase 2 (done):** poll source public via `wall.get`, detect new posts,
   enqueue per-user tasks with log-normal scheduling, CLI worker,

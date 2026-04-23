@@ -36,8 +36,9 @@ class Settings(BaseSettings):
     fernet_key: str = Field(min_length=44)
     session_secret_key: str = Field(min_length=32)
 
-    # VK OAuth — required for participant login
+    # VK auth — required for participant login
     vk_app_id: int
+    vk_protected_key: str | None = None
     vk_oauth_scope: str = "wall,offline"
     vk_api_version: str = "5.199"
 
