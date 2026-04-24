@@ -331,6 +331,7 @@ _PAGE_HTML = """<!doctype html>
         <div class="stack">
           <h3>Шаг 2. Вставить адрес</h3>
           <p class="muted">Мы сами вытащим токен из адреса. Вставлять что-то вручную внутри ссылки не нужно.</p>
+          <p class="muted">Важно: адрес вставляется здесь, внутри этого мини-приложения. Он не публикуется и не отправляется на сторонние сайты. Из него берётся только токен для подключения твоей подписки.</p>
           <input id="paste" type="text" placeholder="https://oauth.vk.com/blank.html#access_token=…" value="${pastedValue.replace(/"/g, "&quot;")}">
           <button class="secondary" id="btn-clip">Вставить из буфера</button>
           <button class="primary" id="btn-submit">Я скопировал адрес, подключить</button>
