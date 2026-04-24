@@ -3,8 +3,9 @@
 Current flow:
   GET  /auth/vk/start       → generate CSRF state and redirect to the auth page
   GET  /auth/vk/complete    → serve VK ID SDK page
-  POST /auth/vk/complete    → accept access_token from the SDK, verify it via
-                              users.get, upsert users row, set session
+  POST /auth/vk/complete    → accept auth code from the SDK, exchange it on the
+                              server, verify the resulting token via users.get,
+                              upsert users row, set session
 """
 
 from __future__ import annotations
@@ -22,8 +23,10 @@ from sqlalchemy import insert, select, update
 from app.audit import record as audit_record
 from app.auth.sessions import (
     get_current_user_id,
+    pop_oauth_code_verifier,
     pop_oauth_state,
     set_current_user,
+    set_oauth_code_verifier,
     set_oauth_state,
 )
 from app.config import get_settings
@@ -31,7 +34,13 @@ from app.crypto import encrypt_token
 from app.db import connection
 from app.models import Actor, UserStatus, users
 from app.vk.api import VkApiError, VkNetworkError, users_get
-from app.vk.oauth import generate_state
+from app.vk.oauth import (
+    VkIdExchangeError,
+    exchange_code_for_access_token,
+    generate_code_challenge,
+    generate_code_verifier,
+    generate_state,
+)
 
 _log = logging.getLogger("app.auth.routes")
 
@@ -54,9 +63,12 @@ async def start(request: Request) -> RedirectResponse:
 async def complete_get(request: Request) -> HTMLResponse:
     """Serve the VK ID SDK page."""
     expected_state = request.session.get("vk_oauth_state")
-    if not expected_state:
+    code_verifier = request.session.get("vk_oauth_code_verifier")
+    if not expected_state or not code_verifier:
         state = generate_state()
+        code_verifier = generate_code_verifier()
         set_oauth_state(request, state)
+        set_oauth_code_verifier(request, code_verifier)
         expected_state = state
 
     return _TEMPLATES.TemplateResponse(
@@ -67,6 +79,7 @@ async def complete_get(request: Request) -> HTMLResponse:
             "vk_app_id": get_settings().vk_app_id,
             "vk_scope": get_settings().vk_oauth_scope,
             "redirect_url": get_settings().oauth_redirect_uri,
+            "vk_code_challenge": generate_code_challenge(code_verifier),
             "state": expected_state,
         },
     )
@@ -75,13 +88,28 @@ async def complete_get(request: Request) -> HTMLResponse:
 @router.post("/complete")
 async def complete_post(
     request: Request,
-    access_token: Annotated[str, Form()],
+    code: Annotated[str, Form()],
+    device_id: Annotated[str, Form()],
     state: Annotated[str, Form()],
 ) -> RedirectResponse:
     expected_state = pop_oauth_state(request)
-    if not expected_state or expected_state != state:
+    code_verifier = pop_oauth_code_verifier(request)
+    if not expected_state or expected_state != state or not code_verifier:
         _log.warning("oauth state mismatch")
         raise HTTPException(status_code=400, detail="Auth state mismatch. Try again.")
+
+    try:
+        access_token = await exchange_code_for_access_token(
+            client_id=get_settings().vk_app_id,
+            redirect_uri=get_settings().oauth_redirect_uri,
+            code=code,
+            device_id=device_id,
+            code_verifier=code_verifier,
+            state=state,
+        )
+    except VkIdExchangeError as exc:
+        _log.warning("vk id code exchange failed: %s", exc)
+        raise HTTPException(status_code=400, detail="VK ID code exchange failed") from exc
 
     try:
         profiles = await users_get(access_token)

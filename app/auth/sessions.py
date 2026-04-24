@@ -10,6 +10,7 @@ from fastapi import Request
 
 SESSION_KEY_USER_ID = "uid"
 SESSION_KEY_OAUTH_STATE = "vk_oauth_state"
+SESSION_KEY_OAUTH_CODE_VERIFIER = "vk_oauth_code_verifier"
 
 
 def set_current_user(request: Request, user_id: int) -> None:
@@ -31,3 +32,11 @@ def set_oauth_state(request: Request, state: str) -> None:
 
 def pop_oauth_state(request: Request) -> str | None:
     return request.session.pop(SESSION_KEY_OAUTH_STATE, None)
+
+
+def set_oauth_code_verifier(request: Request, code_verifier: str) -> None:
+    request.session[SESSION_KEY_OAUTH_CODE_VERIFIER] = code_verifier
+
+
+def pop_oauth_code_verifier(request: Request) -> str | None:
+    return request.session.pop(SESSION_KEY_OAUTH_CODE_VERIFIER, None)

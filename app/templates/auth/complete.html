@@ -21,7 +21,8 @@
     <button id="vkid-fallback" type="button" hidden>Открыть VK ID</button>
   </div>
   <form id="f" method="post" action="{{ post_url }}" hidden>
-    <input type="hidden" name="access_token" value="">
+    <input type="hidden" name="code" value="">
+    <input type="hidden" name="device_id" value="">
     <input type="hidden" name="state" value="">
   </form>
   <noscript>
@@ -56,22 +57,19 @@
       responseMode: VKID.ConfigResponseMode.Callback,
       source: VKID.ConfigSource.LOWCODE,
       scope: {{ vk_scope|tojson }},
+      codeChallenge: {{ vk_code_challenge|tojson }},
       state: state
     });
 
-    const submitToken = (accessToken) => {
-      if (!accessToken) {
-        showError('VK ID не вернул access token.');
+    const submitCode = (code, deviceId) => {
+      if (!code || !deviceId) {
+        showError('VK ID не вернул код авторизации.');
         return;
       }
-      f.access_token.value = accessToken;
+      f.code.value = code;
+      f.device_id.value = deviceId;
       f.state.value = state;
       f.submit();
-    };
-
-    const onSuccess = (data) => {
-      const token = data && (data.access_token || data.accessToken);
-      submitToken(token);
     };
 
     const onError = (error) => {
@@ -92,9 +90,7 @@
         })
         .on(VKID.WidgetEvents.ERROR, onError)
         .on(VKID.FloatingOneTapInternalEvents.LOGIN_SUCCESS, function (payload) {
-          VKID.Auth.exchangeCode(payload.code, payload.device_id)
-            .then(onSuccess)
-            .catch(onError);
+          submitCode(payload.code, payload.device_id);
         });
 
       fallback.addEventListener('click', function () {
