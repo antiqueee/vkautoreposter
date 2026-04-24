@@ -24,7 +24,7 @@ _HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VKMA repost smoke</title>
-<script src="https://unpkg.com/@vkontakte/vk-bridge/dist/browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vkontakte/vk-bridge@latest/dist/browser.min.js"></script>
 <style>
   body { font: 14px/1.4 -apple-system, system-ui, sans-serif; padding: 16px; }
   button { padding: 12px 20px; font-size: 15px; margin: 8px 0; }
@@ -68,3 +68,21 @@ _HTML = """<!doctype html>
 async def vkma_smoke_test() -> HTMLResponse:
     body = _HTML.replace("__APP_ID__", str(VKMA_APP_ID)).replace("__OBJECT__", TEST_OBJECT)
     return HTMLResponse(content=body)
+
+
+@router.get("/vkma/ping")
+async def vkma_ping() -> HTMLResponse:
+    """Zero-JS page to verify VK can actually load our URL inside its iframe.
+
+    If this renders inside vk.com/app54562844 but /vkma/test hangs, the Bridge
+    script fetch is the culprit (CDN blocked / slow inside VK iframe).
+    """
+    return HTMLResponse(
+        content=(
+            '<!doctype html><meta charset="utf-8">'
+            '<title>ping</title>'
+            '<body style="font:20px system-ui;padding:24px">'
+            'VKMA ping OK'
+            '</body>'
+        )
+    )
