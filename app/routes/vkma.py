@@ -242,6 +242,7 @@ _PAGE_HTML = """<!doctype html>
   body { font: 15px/1.45 -apple-system, system-ui, "Segoe UI", sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; }
   h2 { margin: 0 0 12px; font-size: 18px; }
   p { margin: 8px 0; color: var(--muted); }
+  h3 { margin: 0 0 8px; font-size: 15px; }
   .card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin: 12px 0; background: #fff; }
   button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 10px; border: 0; cursor: pointer; width: 100%; margin-top: 8px; }
   button.primary { background: #0077ff; color: #fff; }
@@ -251,12 +252,16 @@ _PAGE_HTML = """<!doctype html>
   input[type=text] { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
   ol { padding-left: 20px; }
   ol li { margin: 6px 0; color: #111; }
+  code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
   .muted { color: var(--muted); font-size: 13px; }
   .error { color: var(--err); margin-top: 8px; font-size: 13px; }
   .ok { color: var(--ok); margin-top: 8px; font-size: 13px; }
   .status-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .status-active { background: #e7f5ec; color: var(--ok); }
   .status-paused { background: #fff4e5; color: #a5670b; }
+  .steps { margin: 0; padding-left: 18px; }
+  .steps li { margin: 8px 0; }
+  .stack + .stack { margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -297,28 +302,63 @@ _PAGE_HTML = """<!doctype html>
     return tok && tok.length > 20 ? tok : null;
   }
 
+  function parseVkUserIdFromUrl(raw) {
+    if (!raw) return null;
+    const hashAt = raw.indexOf("#");
+    const frag = hashAt >= 0 ? raw.slice(hashAt + 1) : raw;
+    const params = new URLSearchParams(frag);
+    return params.get("user_id");
+  }
+
   // ---- Views ----
 
-  function renderConnect(errMsg) {
+  function renderConnect(errMsg, pastedValue = "") {
     root.innerHTML = `
       <h2>Подписка на репосты</h2>
-      <p>Подключите аккаунт ВК один раз, и репосты будут выходить сами.
-         Снять подписку можно в любой момент этой же кнопкой.</p>
+      <p>Подключение делается один раз. После этого новые посты будут репоститься автоматически, а остановить подписку можно здесь же.</p>
 
       <div class="card">
-        <ol>
-          <li>Нажми <b>«Открыть окно VK»</b>. Откроется вкладка с окном авторизации ВКонтакте.</li>
-          <li>В ней нажми <b>«Разрешить»</b>. Вкладка перейдёт на адрес <code>oauth.vk.com/blank.html#…</code></li>
-          <li>Скопируй этот адрес целиком из адресной строки.</li>
-          <li>Вернись сюда, нажми <b>«Вставить из буфера»</b> — или вставь вручную и нажми <b>«Подключить»</b>.</li>
-        </ol>
-        <button class="primary" id="btn-open">Открыть окно VK</button>
-        <input id="paste" type="text" placeholder="https://oauth.vk.com/blank.html#access_token=…" style="margin-top:12px">
-        <button class="secondary" id="btn-clip">Вставить из буфера</button>
-        <button class="primary" id="btn-submit" style="margin-top:12px">Подключить</button>
+        <div class="stack">
+          <h3>Шаг 1. Получить доступ</h3>
+          <ol class="steps">
+            <li>Нажми <b>«Открыть окно VK»</b>.</li>
+            <li>В новом окне нажми <b>«Разрешить»</b>.</li>
+            <li>Когда откроется <code>oauth.vk.com/blank.html#…</code>, скопируй адрес из строки браузера целиком.</li>
+          </ol>
+          <button class="primary" id="btn-open">Открыть окно VK</button>
+        </div>
+
+        <div class="stack">
+          <h3>Шаг 2. Вставить адрес</h3>
+          <p class="muted">Мы сами вытащим токен из адреса. Вставлять что-то вручную внутри ссылки не нужно.</p>
+          <input id="paste" type="text" placeholder="https://oauth.vk.com/blank.html#access_token=…" value="${pastedValue.replace(/"/g, "&quot;")}">
+          <button class="secondary" id="btn-clip">Вставить из буфера</button>
+          <button class="primary" id="btn-submit">Я скопировал адрес, подключить</button>
+          <div class="muted" id="hint"></div>
+        </div>
         ${errMsg ? `<div class="error">${errMsg}</div>` : ""}
       </div>
     `;
+
+    const pasteInput = document.getElementById("paste");
+    const hint = document.getElementById("hint");
+
+    const refreshHint = () => {
+      const raw = pasteInput.value.trim();
+      const tok = parseTokenFromUrl(raw);
+      const vkUserId = parseVkUserIdFromUrl(raw);
+      if (!raw) {
+        hint.textContent = "После копирования просто вставь адрес целиком в поле выше.";
+      } else if (tok) {
+        hint.textContent = vkUserId
+          ? `Адрес выглядит правильно. Найден token и user_id=${vkUserId}.`
+          : "Адрес выглядит правильно. Токен найден.";
+      } else {
+        hint.textContent = "Пока не вижу access_token. Нужен полный адрес с #access_token=...";
+      }
+    };
+    refreshHint();
+    pasteInput.addEventListener("input", refreshHint);
 
     document.getElementById("btn-open").onclick = () => {
       window.open(KATE_OAUTH_URL, "_blank", "noopener");
@@ -326,16 +366,17 @@ _PAGE_HTML = """<!doctype html>
     document.getElementById("btn-clip").onclick = async () => {
       try {
         const text = await navigator.clipboard.readText();
-        document.getElementById("paste").value = text;
+        pasteInput.value = text;
+        refreshHint();
       } catch (e) {
-        renderConnect("Не удалось прочитать буфер. Вставь адрес вручную в поле выше.");
+        renderConnect("Не удалось прочитать буфер. Вставь адрес вручную в поле выше.", pasteInput.value);
       }
     };
     document.getElementById("btn-submit").onclick = async () => {
-      const raw = document.getElementById("paste").value.trim();
+      const raw = pasteInput.value.trim();
       const tok = parseTokenFromUrl(raw);
       if (!tok) {
-        renderConnect("В адресе не нашёл <code>access_token</code>. Проверь, что скопировал полный URL.");
+        renderConnect("В адресе не найден <code>access_token</code>. Скопируй полный адрес из строки браузера и вставь сюда без изменений.", raw);
         return;
       }
       const btn = document.getElementById("btn-submit");
@@ -346,7 +387,7 @@ _PAGE_HTML = """<!doctype html>
         bootstrap();
       } else {
         const reason = r.data && r.data.detail ? r.data.detail : ("HTTP " + r.status);
-        renderConnect("Не получилось подключить: " + reason);
+        renderConnect("Не получилось подключить: " + reason, raw);
       }
     };
   }
