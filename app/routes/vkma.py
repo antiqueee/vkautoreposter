@@ -35,8 +35,12 @@ _BRIDGE_JS = """
     const cb = pending.get(String(rid));
     if (!cb) return;
     pending.delete(String(rid));
-    if (typeof d.type === 'string' && d.type.endsWith('Result')) cb.resolve(d.data);
-    else cb.reject(d);
+    // VK Bridge is inconsistent: most handlers reply with `${handler}Result`,
+    // but some (GetAuthToken → AccessTokenReceived, Init → Result, etc.)
+    // use handler-specific success types. Treat anything NOT ending with
+    // `Failed` as success and let the caller inspect payload.
+    if (typeof d.type === 'string' && d.type.endsWith('Failed')) cb.reject(d);
+    else cb.resolve(d.data);
   });
   window.vkSend = (handler, params = {}) => new Promise((resolve, reject) => {
     const request_id = 'r' + (++counter);
