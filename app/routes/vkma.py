@@ -237,18 +237,24 @@ _PAGE_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Подписка на репосты</title>
 <style>
-  :root { --border:#e4e7eb; --muted:#6b7280; --bg:#f7f8fa; --ok:#1a7f37; --err:#cf222e; }
+  :root { --border:#e4e7eb; --muted:#6b7280; --bg:#f7f8fa; --ok:#1a7f37; --err:#cf222e; --blue:#163b7a; --blue2:#1f4ea3; --blue3:#eaf1ff; }
   * { box-sizing: border-box; }
   body { font: 15px/1.45 -apple-system, system-ui, "Segoe UI", sans-serif; margin: 0; padding: 16px; color: #111; background: #fff; }
   h2 { margin: 0 0 12px; font-size: 18px; }
   p { margin: 8px 0; color: var(--muted); }
   h3 { margin: 0 0 8px; font-size: 15px; }
+  .hero { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .hero-logo-wrap { flex: 0 0 auto; }
+  .hero-logo { width: 88px; height: 88px; display: block; }
+  .hero-title { margin: 0; font-size: 20px; line-height: 1.2; color: #111; }
+  .hero-subtitle { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
   .card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin: 12px 0; background: #fff; }
   button { font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 10px; border: 0; cursor: pointer; width: 100%; margin-top: 8px; }
-  button.primary { background: #0077ff; color: #fff; }
-  button.secondary { background: var(--bg); color: #111; border: 1px solid var(--border); }
+  button.primary { background: var(--blue); color: #fff; }
+  button.secondary { background: var(--blue3); color: var(--blue); border: 1px solid #c8d8ff; }
   button.danger { background: transparent; color: var(--err); border: 1px solid var(--border); }
   button:disabled { opacity: 0.5; cursor: default; }
+  button.primary:hover, button.secondary:hover { filter: brightness(0.98); }
   input[type=text] { width: 100%; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
   ol { padding-left: 20px; }
   ol li { margin: 6px 0; color: #111; }
@@ -262,6 +268,8 @@ _PAGE_HTML = """<!doctype html>
   .steps { margin: 0; padding-left: 18px; }
   .steps li { margin: 8px 0; }
   .stack + .stack { margin-top: 12px; }
+  .accent-note { margin-top: 12px; padding: 12px; border-radius: 10px; background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; font-size: 13px; }
+  .info-note { margin-top: 12px; padding: 12px; border-radius: 10px; background: #f7f8fa; border: 1px solid var(--border); color: #374151; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -271,6 +279,24 @@ _PAGE_HTML = """<!doctype html>
 (() => {
   const KATE_OAUTH_URL = "__KATE_OAUTH_URL__";
   const LS_KEY = "vkma_auth_token";
+  const HERO_LOGO = `
+    <svg class="hero-logo" viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#4f97db"/>
+          <stop offset="100%" stop-color="#1657a8"/>
+        </linearGradient>
+      </defs>
+      <circle cx="44" cy="14" r="9" fill="url(#g1)"/>
+      <circle cx="10" cy="38" r="5" fill="#ef2b1a"/>
+      <circle cx="78" cy="38" r="5" fill="#ef2b1a"/>
+      <path d="M25 28c3-3 8-3 11 0l13 13c2 2 2 6 0 8l-5 5c-2 2-6 2-8 0L20 38c-3-3-3-7 0-10l5-0z" fill="url(#g1)"/>
+      <path d="M48 20c2-1 4-1 6 1l6 6c2 2 2 4 1 6L43 51c-2 2-6 2-8 0l-4-4 17-18z" fill="#ef2b1a"/>
+      <path d="M13 43c1-1 3-1 4 0l7 7c1 1 1 3 0 4l-2 2c-1 1-3 1-4 0l-7-7c-1-1-1-3 0-4l2-2z" fill="#ef2b1a"/>
+      <path d="M70 43c1-1 3-1 4 0l7 7c1 1 1 3 0 4l-2 2c-1 1-3 1-4 0l-7-7c-1-1-1-3 0-4l2-2z" fill="url(#g1)"/>
+      <path d="M18 64h52a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4H18a4 4 0 0 1-4-4v0a4 4 0 0 1 4-4z" fill="#ef2b1a"/>
+    </svg>
+  `;
 
   // ---- VK Bridge (minimal, inline, no CDN) ----
   // We only need VKWebAppInit so VK lifts the "mini apps" spinner.
@@ -314,8 +340,14 @@ _PAGE_HTML = """<!doctype html>
 
   function renderConnect(errMsg, pastedValue = "") {
     root.innerHTML = `
-      <h2>Подписка на репосты</h2>
-      <p>Подключение делается один раз. После этого новые посты будут репоститься автоматически, а остановить подписку можно здесь же.</p>
+      <div class="hero">
+        <div class="hero-logo-wrap">${HERO_LOGO}</div>
+        <div>
+          <h1 class="hero-title">Как подписаться на репосты Команды Петра Толстого</h1>
+          <p class="hero-subtitle">Подключение занимает одну минуту. После этого репосты идут автоматически.</p>
+        </div>
+      </div>
+      <p>Подключение делается один раз на этом устройстве. После этого новые посты будут репоститься автоматически, а остановить подписку можно здесь же.</p>
 
       <div class="card">
         <div class="stack">
@@ -325,6 +357,7 @@ _PAGE_HTML = """<!doctype html>
             <li>В новом окне нажми <b>«Разрешить»</b>.</li>
             <li>Когда откроется <code>oauth.vk.com/blank.html#…</code>, скопируй адрес из строки браузера целиком.</li>
           </ol>
+          <div class="accent-note"><b>Важно:</b> когда увидишь предупреждение на странице VK, просто скопируй адрес сверху и вставь его в поле <b>ниже, в этом приложении</b>. Никуда больше эту ссылку отправлять не нужно.</div>
           <button class="primary" id="btn-open">Открыть окно VK</button>
         </div>
 
@@ -336,6 +369,7 @@ _PAGE_HTML = """<!doctype html>
           <button class="secondary" id="btn-clip">Вставить из буфера</button>
           <button class="primary" id="btn-submit">Я скопировал адрес, подключить</button>
           <div class="muted" id="hint"></div>
+          <div class="info-note">Если кнопка буфера на телефоне не сработала, просто зажми поле выше и выбери <b>«Вставить»</b>. Это нормально для мобильного браузера внутри VK.</div>
         </div>
         ${errMsg ? `<div class="error">${errMsg}</div>` : ""}
       </div>
@@ -366,11 +400,14 @@ _PAGE_HTML = """<!doctype html>
     };
     document.getElementById("btn-clip").onclick = async () => {
       try {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          throw new Error("clipboard_api_unavailable");
+        }
         const text = await navigator.clipboard.readText();
         pasteInput.value = text;
         refreshHint();
       } catch (e) {
-        renderConnect("Не удалось прочитать буфер. Вставь адрес вручную в поле выше.", pasteInput.value);
+        renderConnect("Не удалось прочитать буфер автоматически. На телефоне просто зажми поле и вставь адрес вручную.", pasteInput.value);
       }
     };
     document.getElementById("btn-submit").onclick = async () => {
@@ -396,8 +433,16 @@ _PAGE_HTML = """<!doctype html>
   function renderConnected(info) {
     const isActive = info.status === "active";
     root.innerHTML = `
+      <div class="hero">
+        <div class="hero-logo-wrap">${HERO_LOGO}</div>
+        <div>
+          <h1 class="hero-title">Как подписаться на репосты Команды Петра Толстого</h1>
+          <p class="hero-subtitle">Подписка уже подключена и управляется с этого экрана.</p>
+        </div>
+      </div>
       <h2>Подписка подключена</h2>
       <p><b>${info.display_name}</b> · <a href="https://vk.com/id${info.vk_user_id}" target="_blank" rel="noopener">id${info.vk_user_id}</a></p>
+      <p class="muted">Если открыть приложение с другого телефона или браузера, оно может снова попросить адрес. Это нормально: статус входа хранится локально на каждом устройстве, а сама автоподписка на сервере уже активна.</p>
 
       <div class="card">
         <div>
