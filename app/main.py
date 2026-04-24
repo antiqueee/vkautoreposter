@@ -11,6 +11,7 @@ from app.auth.routes import router as auth_router
 from app.config import get_settings
 from app.routes.admin import router as admin_router
 from app.routes.public import router as public_router
+from app.routes.vkma import router as vkma_router
 
 
 def create_app() -> FastAPI:
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(public_router)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(vkma_router)
     return app
 
 
