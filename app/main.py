@@ -7,7 +7,6 @@ import logging
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth.routes import router as auth_router
 from app.config import get_settings
 from app.routes.admin import router as admin_router
 from app.routes.public import router as public_router
@@ -31,7 +30,6 @@ def create_app() -> FastAPI:
         max_age=60 * 60 * 24 * 30,  # 30 days
     )
     app.include_router(public_router)
-    app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(vkma_router)
     return app

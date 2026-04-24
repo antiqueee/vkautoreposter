@@ -3,19 +3,19 @@
 ## Scope
 
 Consent-based automation of reposts from a single VK public to the walls of
-~70 participants who already do this by hand. VK-auth-based consent, per-user
-pause/revoke, full audit trail. Not a bot network, not astroturfing — a
-rota tool for a political-communications team's volunteer network.
+~70 participants who already do this by hand. Per-user consent, pause/revoke,
+full audit trail. Not a bot network, not astroturfing — a rota tool for a
+political-communications team's volunteer network.
 
 ## Stack
 
 - Python 3.12
-- FastAPI + Starlette SessionMiddleware
+- FastAPI
 - SQLAlchemy 2.x **Core** (not ORM) + Alembic
 - SQLite with `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`
 - `cryptography` (Fernet) for token-at-rest encryption
 - `httpx` for VK HTTP calls (no VK SDK — they lag API versions)
-- Jinja2 templates
+- inline HTML/JS for the VK Mini App + Jinja2 for the landing page
 - Host cron or manual CLI for the minute tick
 
 Rationale for deliberately boring choices: workload is tiny (a few posts/day
@@ -28,7 +28,8 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
 ```
                          VK
    ┌──────────────────────────────────────────────┐
-   │  id.vk.com / VK ID SDK   api.vk.com          │
+   │  dev.vk.ru / VK Mini App    api.vk.com       │
+   │  oauth.vk.com (standalone)                    │
    │        ▲                     ▲               │
    │        │ user consent        │ wall.get      │
    │        │                     │ users.get     │
@@ -38,9 +39,9 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
    ┌────────▼─────────────────────▼───────────────┐
    │            FastAPI (single process)          │
    │                                              │
-   │  /auth/vk/*     /me         /admin/*         │
-   │  participant    cabinet     coordinator UI   │
-   │  VK auth                                     │
+   │  /vkma         /api/vkma/*  /admin/*         │
+   │  participant   bearer API   coordinator UI   │
+   │  mini app                                    │
    │                                              │
    │  Host cron / manual CLI                      │
    │    tick — poll_source + run_due_tasks        │
@@ -57,8 +58,7 @@ Redis/Celery/Postgres would be complexity for a hypothetical future.
 
 Important: **no Callback API / inbound webhook.** We poll `wall.get` on the
 source public with a service token once per minute. This is one request,
-not seventy, and removes the need for a public URL that VK can reach —
-which matters for local dev and simplifies prod deployment.
+not seventy, and removes the need for source-side push integration.
 
 ## Schema (phase 2 live)
 
@@ -134,42 +134,49 @@ No `admins` table. One coordinator → HTTP Basic + `ADMIN_PASSWORD` from env.
 Good for the single-coordinator model; swap for a real table in ~30 min if
 a second coordinator appears.
 
-## Auth flow (VK ID SDK + backend token storage)
+## Participant onboarding flow (VK Mini App + standalone token paste)
 
 ```
-Participant  Browser         Server            VK
-    │           │               │               │
-    │ click     │               │               │
-    ├──────────>│ GET /auth/vk/start            │
-    │           ├──────────────>│ generate state│
-    │           │               │ session[state]│
-    │           │ 302 /auth/vk/complete         │
-    │           │<──────────────┤               │
-    │           │ GET /auth/vk/complete         │
-    │           ├──────────────>│               │
-    │           │ 200 HTML+JS + VK ID SDK       │
-    │           │<──────────────┤               │
-    │           │ user authorizes via VK ID     │
-    │           │ SDK gets code                 │
-    │           │ SDK exchangeCode(code)        │
-    │           │ JS POST /auth/vk/complete     │
-    │           │   form: access_token,state    │
-    │           ├──────────────>│               │
-    │           │               │ verify state  │
-    │           │               │ users.get     │
-    │           │               ├──────────────>│
-    │           │               │<──────────────┤
-    │           │               │ encrypt token │
-    │           │               │ UPSERT users  │
-    │           │               │ set session   │
-    │           │ 303 /me       │               │
-    │           │<──────────────┤               │
+Participant  VK Mini App      Server             VK
+    │            │               │               │
+    │ open app   │               │               │
+    ├───────────>│ GET /vkma                     │
+    │            ├──────────────>│ serve inline UI
+    │            │<──────────────┤               │
+    │ click      │               │               │
+    │ "Open VK"  │ new tab oauth.vk.com/authorize
+    │            ├──────────────────────────────>│
+    │            │ approve standalone OAuth      │
+    │            │<──────────────────────────────┤
+    │ copy full  │ oauth.vk.com/blank.html#access_token=...
+    │ URL        │               │               │
+    │ paste URL  │ POST /api/vkma/token         │
+    │ back       ├──────────────>│ users.get     │
+    │            │               ├──────────────>│
+    │            │               │<──────────────┤
+    │            │               │ encrypt token │
+    │            │               │ UPSERT users  │
+    │            │               │ mint bearer   │
+    │            │<──────────────┤               │
+    │            │ localStorage[bearer]          │
+    │            │ GET /api/vkma/status          │
+    │            ├──────────────>│               │
+    │            │<──────────────┤ connected     │
 ```
 
-Trade-off: the access token still passes through the browser, but the VK
-password never does, and the backend remains the only place where the token is
-persisted. This is the conservative path until VK ID's full server-side
-exchange behaviour for `wall`/API scopes is validated in production.
+Why this shape:
+
+- VK blocks `wall.repost` for both Web and VK Mini App profile tokens.
+- VK explicitly returns `error_code=15`, `error_subcode=1134`,
+  `Permission ... denied for non-standalone applications`.
+- The only working path we found was a standalone-profile token, obtained via a
+  legacy OAuth client (`Kate Mobile`).
+
+Trade-off:
+
+- the participant must copy one URL from `oauth.vk.com/blank.html` back into the
+  mini app during onboarding;
+- after that the system is fully automatic again: poller and worker do the rest.
 
 ## Source polling (phase 2)
 
@@ -222,7 +229,7 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
 | 6    | Too many req/sec         | retry with backoff, don't consume retry_count                  |
 | 9    | Flood control            | task → `failed` (`flood`), alert                               |
 | 14   | Captcha                  | task → `failed` (`captcha`), user → `invalid_token`, alert     |
-| 15   | Access denied            | task → `failed` (`access_denied`) — user may have blocked pub |
+| 15   | Access denied            | task → `failed` (`access_denied`)                              |
 | 17   | Validation required      | task → `failed`, user → `invalid_token`                        |
 | 18   | User banned              | task → `failed`, user → `revoked`                              |
 | 29   | Method rate limit        | retry with backoff                                             |
@@ -237,7 +244,7 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
 - No Prometheus. Admin UI renders counts from `audit_log`.
 - No LLM-generated comments. Raw `wall.repost`, no message.
 - No auto token-refresh prompt. Invalidated participants re-authorise via
-  the onboarding link.
+  the mini app onboarding link.
 - No server-side VK token revocation. "Revoke" means local
   token wipe/overwrite, `status='revoked'`, and pending task cancellation.
 
@@ -247,5 +254,5 @@ finalise as `missed`; else decrypt token and call `wall.repost`.
   minimal cabinet, smoke test.
 - **Phase 2 (done):** source polling, log-normal scheduling, worker, error matrix.
 - **Phase 3 (done):** admin UI, pause/resume/revoke, per-user repost history.
-- **Phase 4 (partial):** Caddy template and backup helper are present;
-  production deploy waits for domain/SSH/VK app settings.
+- **Phase 4 (done):** production deployment, minute cron tick, working VK Mini
+  App onboarding, real end-to-end repost confirmed.

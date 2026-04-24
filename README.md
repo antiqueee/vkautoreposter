@@ -3,27 +3,28 @@
 Consent-based automation for reposting a single VK public's posts across a
 network of participants. Internal tool — not a public web service.
 
-**Status:** phase 3 — VK auth onboarding, participant cabinet, source polling,
-task enqueueing, CLI worker, admin dashboard, pause/resume/revoke, and manual
-trigger by post URL.
+**Current flow:** VK Mini App onboarding + Kate Mobile standalone OAuth token,
+source polling, task enqueueing, CLI worker, admin dashboard, pause/resume,
+revoke, and manual trigger by post URL.
 
 ---
 
 ## Quickstart (local dev)
 
-### 1. Register a VK web application in VK ID
+### 1. Register a VK Mini App
 
-Create a new **Web** app in VK ID and fill in:
+Create a new **Mini App** in `dev.vk.ru` and set its placement URL to your real
+HTTPS host, for example:
 
-- **Базовый домен:** your real domain, e.g. `app.subscribe-to-reposter.ru`
-- **Доверенный Redirect URL:** `https://app.subscribe-to-reposter.ru/auth/vk/complete`
+```text
+https://app.subscribe-to-reposter.ru/vkma
+```
 
-Copy the **ID приложения** into `VK_APP_ID`.
-
-The current app uses VK ID SDK in the browser to exchange `code` for
-`access_token`, then sends the access token to the backend for verification and
-encrypted storage. `VK_PROTECTED_KEY` exists in the VK cabinet too, but the MVP
-does not need it yet.
+The app itself does **not** use the VKMA profile token for reposting. VK blocks
+`wall.repost` for Web and Mini App profile types. The mini app is only the
+participant UI shell. The actual repost-capable user token comes from a legacy
+standalone OAuth flow (`Kate Mobile` client id) and is pasted back into the
+mini app once during onboarding.
 
 ### 2. Generate local secrets
 
@@ -41,8 +42,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 cp .env.example .env
 ```
 
-Fill in `FERNET_KEY`, `SESSION_SECRET_KEY`, `VK_APP_ID`. `VK_SOURCE_GROUP_ID`
-is only needed when you start testing source polling.
+Fill in `FERNET_KEY` and `SESSION_SECRET_KEY`. `VK_SOURCE_GROUP_ID` is only
+needed when you start testing source polling.
 
 For the admin UI, also set:
 
@@ -74,7 +75,25 @@ This creates `./data/repost.db` (path configurable via `DB_PATH`).
 uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload
 ```
 
-Open the app, click **Подключить аккаунт ВК**, complete VK auth, land on `/me`.
+Open:
+
+- landing page: <http://localhost:8765/>
+- mini app page directly for local UI work: <http://localhost:8765/vkma>
+
+In production, participants should enter through the VK Mini App:
+
+```text
+https://vk.com/app54562844
+```
+
+Onboarding flow:
+
+1. Click `Открыть окно VK`.
+2. Approve access in the VK OAuth window.
+3. Copy the full `oauth.vk.com/blank.html#access_token=...` URL.
+4. Paste it back into the mini app.
+5. The backend validates the token with `users.get`, encrypts it, stores it,
+   and the account becomes active for automatic reposts.
 
 ### 7. Smoke test
 
@@ -84,7 +103,7 @@ python scripts/smoke_test.py
 
 Pulls the first active user from the DB, decrypts the token, calls
 `users.get` on VK, prints the profile. If it succeeds, the end-to-end
-VK auth + crypto path works.
+mini app onboarding + token storage path works.
 
 ### 8. Source polling and worker
 
@@ -155,18 +174,17 @@ Do not run two schedulers at once.
 
 ## Production HTTPS
 
-For production VK auth, VK requires a real HTTPS redirect URL. Put Caddy in front
-of the app and set:
+The mini app placement URL must be a real HTTPS page. Put Caddy in front of the
+app and set:
 
 ```env
 APP_BASE_URL=https://vkautoreposter.example.com
 ```
 
-VK app settings:
+VK Mini App settings:
 
 ```text
-Базовый домен: vkautoreposter.example.com
-Доверенный Redirect URL: https://vkautoreposter.example.com/auth/vk/complete
+URL / iframe URL / mobile URL: https://vkautoreposter.example.com/vkma
 ```
 
 `Caddyfile.example` contains a minimal reverse proxy template.
@@ -197,10 +215,16 @@ app.subscribe-to-reposter.ru {
   HMAC-SHA256). The key is in `FERNET_KEY` — **back it up separately from
   the DB file**. If you lose the key, every participant will need to
   re-authorise.
+- The mini app uses a signed bearer token in `localStorage` for its own API
+  calls because third-party cookies inside the VK iframe are unreliable.
 - Tokens never appear in logs. The log format deliberately avoids rendering
   request bodies.
-- Session cookies are signed with `SESSION_SECRET_KEY`. Rotating this key
-  logs everyone out — harmless but annoying.
+- The participant still sees a VK warning on `oauth.vk.com/blank.html`; this is
+  expected. The mini app asks them to paste the URL back into the app, where
+  only the `access_token` fragment is extracted and sent to the server.
+- Session cookies are still signed with `SESSION_SECRET_KEY`. Admin flows and
+  any leftover legacy routes keep working, but the active participant flow no
+  longer depends on session cookies.
 - In dev the `https_only` cookie flag is off. In `APP_ENV=prod` it's on, so
   you need TLS (Caddy + Let's Encrypt) in front of the app.
 
@@ -241,14 +265,14 @@ app/
   models.py            Table definitions (Core)
   audit.py             audit_log writer
   vk/
-    oauth.py           state helper
     api.py             httpx client, users_get, wall_get, wall_repost, errors
   auth/
     admin.py           HTTP Basic admin auth
-    sessions.py        session cookie helpers
-    routes.py          /auth/vk/start, /auth/vk/complete, /auth/vk/logout
+    bearer.py          signed bearer token for the mini app
+    sessions.py        legacy session helpers
   routes/
-    public.py          /, /me
+    public.py          landing page
+    vkma.py            /vkma UI + /api/vkma/*
     admin.py           /admin dashboard, manual trigger, participant controls
   worker/
     poller.py          wall.get polling + task enqueueing
